@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script src="https://threejs.org/examples/js/loaders/GLTFLoader.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Stilton PDO Simulator</title>
@@ -217,78 +218,44 @@ const rindMat = new THREE.MeshStandardMaterial({
 // ── Cheese Geometry ────────────────────────────────────────────
 // ── Cheese Geometry (IMPROVED REALISM) ─────────────────────────
 
-const R = 2.3, HH = 1.75, SEG = 80, ANGLE = Math.PI/3;
+// -- Global variable to store the mesh for raycasting
+let bodyMesh; 
 const cheeseGroup = new THREE.Group();
 scene.add(cheeseGroup);
 
-// Slight irregularity function
-function deformGeometry(geo, intensity = 0.06){
-  const pos = geo.attributes.position;
-  for(let i=0;i<pos.count;i++){
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
+const loader = new THREE.GLTFLoader();
 
-    // subtle organic noise
-    const n = (Math.sin(x*2.3)+Math.cos(z*2.1)+Math.sin(y*3.1)) * intensity;
+loader.load('/models/cheese.glb', (gltf) => {
+  const model = gltf.scene;
+  
+  model.traverse((child) => {
+    if (child.isMesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
 
-    pos.setXYZ(
-      i,
-      x + n * 0.3,
-      y + n * 0.2,
-      z + n * 0.3
-    );
-  }
-  geo.computeVertexNormals();
-}
+      // --- ADDING COLOR/TEXTURES HERE ---
+      // If your model has specific names (like "Rind" and "Inside") in Blender:
+      if (child.name.toLowerCase().includes('rind')) {
+        child.material = rindMat; 
+      } else {
+        child.material = pasteMat;
+        // Assign this for the clicking/piercing logic
+        bodyMesh = child; 
+      }
+      
+      // OPTIONAL: If you just want a solid color instead of your textures:
+      // child.material = new THREE.MeshStandardMaterial({ color: 0xffd700 });
+    }
+  });
 
-// ── MAIN BODY (slightly deformed wedge)
-const bodyGeo = new THREE.CylinderGeometry(R, R, HH, SEG, 1, false, 0, ANGLE);
-deformGeometry(bodyGeo, 0.05);
-
-const bodyMesh = new THREE.Mesh(bodyGeo, pasteMat);
-bodyMesh.castShadow = true;
-bodyMesh.receiveShadow = true;
-cheeseGroup.add(bodyMesh);
-
-// ── RIND OUTER (thicker + blended)
-const rindGeo = new THREE.CylinderGeometry(R + 0.05, R + 0.05, HH + 0.05, SEG, 1, true, 0, ANGLE);
-deformGeometry(rindGeo, 0.03);
-
-const rindMesh = new THREE.Mesh(rindGeo, rindMat);
-rindMesh.castShadow = true;
-cheeseGroup.add(rindMesh);
-
-// ── TOP + BOTTOM (slightly uneven)
-function makeCap(yPos, rot){
-  const shape = new THREE.Shape();
-  shape.moveTo(0,0);
-  shape.lineTo(R,0);
-
-  for(let i=1;i<=SEG;i++){
-    const a = ANGLE * (i/SEG);
-    const jitter = (Math.random()-0.5)*0.03;
-    shape.lineTo(
-      Math.cos(a)*(R+jitter),
-      Math.sin(a)*(R+jitter)
-    );
-  }
-
-  shape.lineTo(0,0);
-
-  const geo = new THREE.ShapeGeometry(shape, SEG);
-  deformGeometry(geo, 0.04);
-
-  const m = new THREE.Mesh(geo, rindMat);
-  m.rotation.x = rot;
-  m.position.y = yPos;
-  m.receiveShadow = true;
-  cheeseGroup.add(m);
-}
-
-makeCap(HH/2, -Math.PI/2);
-makeCap(-HH/2, Math.PI/2);
-
+  // Center and scale the model if it's too big/small
+  model.scale.setScalar(1.0); 
+  cheeseGroup.add(model);
+}, 
+// Progress callback
+undefined, 
+// Error callback
+(error) => { console.error("Error loading model:", error); });
 // ── CUT FACE (CRUMBLY LOOK)
 function makeCutFace(angleOffset = 0){
   const geo = new THREE.PlaneGeometry(R, HH, 40, 40);

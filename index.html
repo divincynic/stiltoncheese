@@ -32,11 +32,6 @@
     .sv { font-size: 13px; font-weight: 500; color: #f0e8d0; }
     .sv.v { color: #3d9e72; }
     #bio { font-size: 12px; color: rgba(80,190,140,0.9); margin-top: 9px; line-height: 1.6; min-height: 40px; white-space: pre-line; }
-    #controls-hint {
-      position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
-      font-size: 11px; color: rgba(240,232,208,0.3);
-      pointer-events: none;
-    }
   </style>
 </head>
 <body>
@@ -80,14 +75,13 @@ scene.background = new THREE.Color(0x120f0a);
 scene.fog = new THREE.Fog(0x120f0a, 8, 20);
 
 const camera = new THREE.PerspectiveCamera(40, window.innerWidth/window.innerHeight, 0.1, 100);
-// CLOSER CAMERA POSITION
 camera.position.set(3.5, 2.8, 4.0);
 camera.lookAt(0, 0, 0);
 
 // ── Lighting ───────────────────────────────────────────────────
-scene.add(new THREE.AmbientLight(0xfff0d8, 0.35));
+scene.add(new THREE.AmbientLight(0xfff0d8, 0.4));
 
-const sun = new THREE.DirectionalLight(0xfffae8, 2.2);
+const sun = new THREE.DirectionalLight(0xfffae8, 2.4);
 sun.position.set(4, 8, 3);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048,2048);
@@ -96,11 +90,11 @@ sun.shadow.camera.top = 5; sun.shadow.camera.bottom = -5;
 sun.shadow.bias = -0.0003;
 scene.add(sun);
 
-const fill = new THREE.DirectionalLight(0xc8dff8, 0.5);
+const fill = new THREE.DirectionalLight(0xc8dff8, 0.6);
 fill.position.set(-5, 2, -2);
 scene.add(fill);
 
-const back = new THREE.DirectionalLight(0xffe8c8, 0.7);
+const back = new THREE.DirectionalLight(0xffe8c8, 0.8);
 back.position.set(0, 2, -6);
 scene.add(back);
 
@@ -156,29 +150,20 @@ function makeRind(){
 }
 
 // ── MATERIALS ─────────────────────────────────────────────────
-// OPAQUE PASTE (internal) - not translucent
+// SEMI-TRANSPARENT PASTE - can see veins through it
 const pasteTex = makePaste();
-const pasteMat = new THREE.MeshStandardMaterial({ 
+const pasteMat = new THREE.MeshPhysicalMaterial({ 
   color: 0xf5ecd8,
   map: pasteTex,
-  roughness: 0.75,
-  metalness: 0
-});
-
-// TRANSLUCENT OUTER LAYER (thin wax rind)
-const translucentRindMat = new THREE.MeshPhysicalMaterial({ 
-  color: 0xf8f0d8,
-  map: pasteTex,
-  roughness: 0.6,
+  roughness: 0.7,
   metalness: 0,
-  transmission: 0.75,        // See-through wax layer
-  thickness: 0.3,            // Thin layer
-  ior: 1.45,                 // Wax-like refraction
-  clearcoat: 0.3,
-  clearcoatRoughness: 0.2,
-  side: THREE.FrontSide,
+  transmission: 0.4,        // Moderate transparency
+  thickness: 1.5,
+  ior: 1.35,
   transparent: true,
-  opacity: 0.95
+  opacity: 0.85,
+  side: THREE.DoubleSide,
+  depthWrite: false         // Helps with transparency sorting
 });
 
 const rindMat = new THREE.MeshStandardMaterial({ 
@@ -190,9 +175,10 @@ const rindMat = new THREE.MeshStandardMaterial({
 // ── Cheese Model Integration ──────────────────────────────────
 const R = 2.3, HH = 1.75, ANGLE = Math.PI/3;
 let bodyMesh; 
-let outerLayerMesh;
 const cheeseGroup = new THREE.Group();
-scene.add(cheeseGroup);
+const rotationGroup = new THREE.Group(); // Wrapper for rotation
+scene.add(rotationGroup);
+rotationGroup.add(cheeseGroup);
 
 const loader = new THREE.GLTFLoader();
 
@@ -207,25 +193,13 @@ loader.load('models/cheese.glb', (gltf) => {
       if (child.name.toLowerCase().includes('rind')) {
         child.material = rindMat; 
       } else {
-        // Create slightly larger copy for translucent outer layer
         child.material = pasteMat;
         bodyMesh = child;
-        
-        // Create translucent outer shell
-        const outerGeo = child.geometry.clone();
-        outerLayerMesh = new THREE.Mesh(outerGeo, translucentRindMat);
-        outerLayerMesh.scale.setScalar(1.02); // Slightly larger
-        outerLayerMesh.castShadow = true;
-        outerLayerMesh.receiveShadow = true;
-        
-        // Add both to cheese group
-        cheeseGroup.add(child);
-        cheeseGroup.add(outerLayerMesh);
       }
     }
   });
-  
-  // Center the cheese
+
+  cheeseGroup.add(model);
   cheeseGroup.position.y = -0.2;
   
 }, undefined, (e) => console.error("Error loading GLB:", e));
@@ -242,7 +216,7 @@ canvas.addEventListener('mousedown', (e) => {
 });
 
 canvas.addEventListener('mousemove', (e) => {
-  if (isDragging && cheeseGroup) {
+  if (isDragging) {
     const deltaMove = {
       x: e.clientX - previousMousePosition.x,
       y: e.clientY - previousMousePosition.y
@@ -250,60 +224,50 @@ canvas.addEventListener('mousemove', (e) => {
     
     targetRotation.y += deltaMove.x * 0.01;
     targetRotation.x += deltaMove.y * 0.01;
-    
-    // Clamp vertical rotation
-    targetRotation.x = Math.max(-0.5, Math.min(0.5, targetRotation.x));
+    targetRotation.x = Math.max(-0.6, Math.min(0.6, targetRotation.x));
     
     previousMousePosition = { x: e.clientX, y: e.clientY };
   }
 });
 
-canvas.addEventListener('mouseup', () => {
-  isDragging = false;
-});
+canvas.addEventListener('mouseup', () => isDragging = false);
+canvas.addEventListener('mouseleave', () => isDragging = false);
 
-canvas.addEventListener('mouseleave', () => {
-  isDragging = false;
-});
-
-// Touch support for mobile
 canvas.addEventListener('touchstart', (e) => {
   isDragging = true;
   previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
 });
 
 canvas.addEventListener('touchmove', (e) => {
-  if (isDragging && cheeseGroup) {
+  if (isDragging) {
     const deltaMove = {
       x: e.touches[0].clientX - previousMousePosition.x,
       y: e.touches[0].clientY - previousMousePosition.y
     };
-    
     targetRotation.y += deltaMove.x * 0.01;
     targetRotation.x += deltaMove.y * 0.01;
-    targetRotation.x = Math.max(-0.5, Math.min(0.5, targetRotation.x));
-    
+    targetRotation.x = Math.max(-0.6, Math.min(0.6, targetRotation.x));
     previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   }
   e.preventDefault();
 });
 
-canvas.addEventListener('touchend', () => {
-  isDragging = false;
-});
+canvas.addEventListener('touchend', () => isDragging = false);
 
 // ── NEEDLE SYSTEM ──────────────────────────────────────────────
-const needles = [];
-const needleGroup = new THREE.Group();
-scene.add(needleGroup);
-
+// Needles are added to cheeseGroup so they rotate WITH the cheese
 const needleMat = new THREE.MeshStandardMaterial({
   color: 0xc0c5ce,
   metalness: 0.95,
   roughness: 0.15
 });
 
-function createNeedle(position, direction) {
+function createNeedle(worldPosition, worldDirection) {
+  // Convert world position/direction to cheese local space
+  const localPos = cheeseGroup.worldToLocal(worldPosition.clone());
+  const localTarget = cheeseGroup.worldToLocal(worldPosition.clone().add(worldDirection));
+  const localDir = localTarget.sub(localPos).normalize();
+  
   const shaftGeo = new THREE.CylinderGeometry(0.012, 0.008, 0.6, 8);
   const shaft = new THREE.Mesh(shaftGeo, needleMat);
   
@@ -315,22 +279,26 @@ function createNeedle(position, direction) {
   needle.add(shaft);
   needle.add(tip);
   
-  needle.position.copy(position);
+  // Position in local space
+  needle.position.copy(localPos);
   
-  const targetPos = position.clone().add(direction);
-  needle.lookAt(targetPos);
+  // Orient to point in piercing direction
+  const lookTarget = localPos.clone().add(localDir);
+  needle.lookAt(lookTarget);
   needle.rotateX(Math.PI/2);
   
-  needle.position.add(direction.clone().multiplyScalar(-0.25));
+  // Animate from outside to inside
+  const startOffset = localDir.clone().multiplyScalar(-0.4);
   needle.userData = { 
-    targetPos: position.clone(),
-    startPos: needle.position.clone(),
+    targetPos: localPos.clone(),
+    startPos: localPos.clone().add(startOffset),
     progress: 0,
     inserted: false
   };
+  needle.position.copy(needle.userData.startPos);
   
-  needleGroup.add(needle);
-  needles.push(needle);
+  cheeseGroup.add(needle); // Add to cheeseGroup, not scene!
+  
   return needle;
 }
 
@@ -338,12 +306,15 @@ function createNeedle(position, direction) {
 let pierceCount=0, veinCount=0;
 const veinAnims = [];
 
+// BRIGHTER, THICKER veins for visibility
 const trunkMat = new THREE.MeshStandardMaterial({
-  color:0x1a5060, 
-  emissive:0x0a2028, 
-  emissiveIntensity:0.7,
-  roughness:0.35, 
-  metalness:0.1
+  color:0x2a7090,           // Brighter blue-green
+  emissive:0x1a4050,        // Stronger emissive
+  emissiveIntensity:1.2,     // Much brighter
+  roughness:0.3, 
+  metalness:0.15,
+  transparent: true,
+  opacity: 0.95
 });
 
 function clampToWedge(p){
@@ -364,70 +335,100 @@ function clampToWedge(p){
 
 function spawnVein(localPt){
   clampToWedge(localPt);
-  const origin = new THREE.Vector3(
-    localPt.x * (0.05 + Math.random()*0.2),
-    localPt.y * (0.1 + Math.random()*0.3),
-    localPt.z * (0.05 + Math.random()*0.2)
-  );
-  clampToWedge(origin);
-
-  const grp = new THREE.Group();
-  const pts = [origin.clone()];
-  const steps = 10;
-  for(let i=1;i<=steps;i++){
-    const t = i/steps;
-    const base = origin.clone().lerp(localPt, t);
-    base.x += (Math.random()-0.5)*0.2;
-    base.y += (Math.random()-0.5)*0.1;
-    clampToWedge(base);
-    pts.push(base);
-  }
-  const curve = new THREE.CatmullRomCurve3(pts);
-  const tgeo = new THREE.TubeGeometry(curve, 20, 0.025, 6, false);
-  const veinMesh = new THREE.Mesh(tgeo, trunkMat);
-  veinMesh.renderOrder = 1;
   
-  grp.add(veinMesh);
-  grp.scale.setScalar(0.01);
-  cheeseGroup.add(grp);
-  veinAnims.push({grp, s:0.01, target:1.0, done:false});
-  veinCount++;
+  // Create multiple branches for visibility
+  const numBranches = 1 + Math.floor(Math.random() * 2);
+  
+  for(let b=0; b<numBranches; b++){
+    const origin = new THREE.Vector3(
+      localPt.x * (0.1 + Math.random()*0.3),
+      localPt.y * (0.15 + Math.random()*0.4),
+      localPt.z * (0.1 + Math.random()*0.3)
+    );
+    clampToWedge(origin);
+
+    const grp = new THREE.Group();
+    const pts = [origin.clone()];
+    const steps = 8 + Math.floor(Math.random() * 5);
+    
+    for(let i=1;i<=steps;i++){
+      const t = i/steps;
+      const base = origin.clone().lerp(localPt, t);
+      // Add randomness
+      base.x += (Math.random()-0.5)*0.25;
+      base.y += (Math.random()-0.5)*0.15;
+      base.z += (Math.random()-0.5)*0.25;
+      clampToWedge(base);
+      pts.push(base);
+    }
+    
+    const curve = new THREE.CatmullRomCurve3(pts);
+    // THICKER tubes for visibility
+    const thickness = 0.035 + Math.random() * 0.02;
+    const tgeo = new THREE.TubeGeometry(curve, 24, thickness, 8, false);
+    const veinMesh = new THREE.Mesh(tgeo, trunkMat);
+    
+    grp.add(veinMesh);
+    grp.scale.setScalar(0.01);
+    cheeseGroup.add(grp); // Add to cheeseGroup so it rotates with cheese!
+    veinAnims.push({grp, s:0.01, target:1.0, done:false});
+  }
+  
+  veinCount += numBranches;
 }
 
 // ── Raycasting & Interaction ───────────────────────────────────
 const rc=new THREE.Raycaster();
 const mouse=new THREE.Vector2();
+let dragStartTime = 0;
+let dragStartPos = { x: 0, y: 0 };
 
-document.addEventListener('pointerdown',function(e){
-  if(!bodyMesh || isDragging) return; // Don't pierce if dragging
+canvas.addEventListener('pointerdown',function(e){
+  dragStartTime = Date.now();
+  dragStartPos = { x: e.clientX, y: e.clientY };
+});
+
+canvas.addEventListener('pointerup',function(e){
+  const dragDuration = Date.now() - dragStartTime;
+  const dragDist = Math.sqrt(
+    Math.pow(e.clientX - dragStartPos.x, 2) + 
+    Math.pow(e.clientY - dragStartPos.y, 2)
+  );
   
-  // Check if we're clicking on canvas but not dragging significantly
-  const rect=renderer.domElement.getBoundingClientRect();
-  mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
-  mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
-  rc.setFromCamera(mouse,camera);
-  
-  // Check intersection with both body and outer layer
-  const hits=rc.intersectObjects([bodyMesh, outerLayerMesh].filter(Boolean));
-  if(hits.length>0){
-    const wp=hits[0].point.clone();
-    const lp=cheeseGroup.worldToLocal(wp.clone());
+  // Only pierce if it was a click, not a drag
+  if(dragDuration < 300 && dragDist < 10 && bodyMesh){
+    const rect=renderer.domElement.getBoundingClientRect();
+    mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
+    mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+    rc.setFromCamera(mouse,camera);
     
-    const normal = hits[0].face.normal.clone().transformDirection(hits[0].object.matrixWorld).normalize();
-    const pierceDir = normal.multiplyScalar(-1);
-    
-    createNeedle(wp, pierceDir);
-    spawnVein(lp);
-    pierceCount++;
-    hud();
-    updateBio();
+    // Raycast against the rotationGroup (transforms applied automatically)
+    const hits=rc.intersectObject(bodyMesh);
+    if(hits.length>0){
+      const wp=hits[0].point.clone();
+      
+      // Get normal in world space
+      const normal = hits[0].face.normal.clone();
+      normal.transformDirection(bodyMesh.matrixWorld).normalize();
+      const pierceDir = normal.multiplyScalar(-1);
+      
+      createNeedle(wp, pierceDir);
+      
+      // Local point for vein (converted inside spawnVein)
+      const lp=cheeseGroup.worldToLocal(wp.clone());
+      spawnVein(lp);
+      
+      pierceCount++;
+      hud();
+      updateBio();
+    }
   }
 });
 
 function hud(){
   document.getElementById('pv').textContent=pierceCount;
   document.getElementById('vv').textContent=veinCount;
-  const pct=Math.min(100,Math.round(pierceCount*9+veinCount*2));
+  const pct=Math.min(100,Math.round(pierceCount*8+veinCount*1.5));
   document.getElementById('mv').textContent=pct+'%';
 }
 
@@ -452,35 +453,33 @@ function animate(){
   requestAnimationFrame(animate);
   const dt=clk.getDelta();
   
-  // Smooth rotation interpolation
-  if(cheeseGroup){
-    currentRotation.x += (targetRotation.x - currentRotation.x) * 0.1;
-    currentRotation.y += (targetRotation.y - currentRotation.y) * 0.1;
-    
-    cheeseGroup.rotation.x = currentRotation.x;
-    cheeseGroup.rotation.y = currentRotation.y + Math.sin(clk.getElapsedTime() * 0.2) * 0.02; // Subtle idle wobble
-  }
+  // Smooth rotation
+  currentRotation.x += (targetRotation.x - currentRotation.x) * 0.08;
+  currentRotation.y += (targetRotation.y - currentRotation.y) * 0.08;
   
-  // Animate needles
-  needles.forEach(needle => {
-    if(!needle.userData.inserted && needle.userData.progress < 1){
-      needle.userData.progress += dt * 4;
-      if(needle.userData.progress >= 1){
-        needle.userData.progress = 1;
-        needle.userData.inserted = true;
+  rotationGroup.rotation.x = currentRotation.x;
+  rotationGroup.rotation.y = currentRotation.y;
+  
+  // Animate needle insertions (local space)
+  cheeseGroup.children.forEach(child => {
+    if(child.userData && child.userData.inserted !== undefined && !child.userData.inserted){
+      child.userData.progress += dt * 5;
+      if(child.userData.progress >= 1){
+        child.userData.progress = 1;
+        child.userData.inserted = true;
       }
-      needle.position.lerpVectors(
-        needle.userData.startPos,
-        needle.userData.targetPos,
-        needle.userData.progress
+      child.position.lerpVectors(
+        child.userData.startPos,
+        child.userData.targetPos,
+        child.userData.progress
       );
     }
   });
   
-  // Animate veins
+  // Animate vein growth
   for(const v of veinAnims){
     if(!v.done){
-      v.s=Math.min(v.target, v.s+dt*1.2);
+      v.s=Math.min(v.target, v.s+dt*1.5);
       v.grp.scale.setScalar(v.s);
       if(v.s>=v.target) v.done=true;
     }

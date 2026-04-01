@@ -108,7 +108,7 @@ scene.add(back);
   scene.add(t);
 })();
 
-// ── Procedural Textures (Kept for the GLB model) ────────────────
+// ── Procedural Textures ───────────────────────────────────────
 function makePaste(){
   const sz=1024, cv=document.createElement('canvas');
   cv.width=cv.height=sz;
@@ -148,20 +148,39 @@ function makeRind(){
   return new THREE.CanvasTexture(cv);
 }
 
-const pasteMat = new THREE.MeshStandardMaterial({ color: 0xede5cb, map: makePaste(), roughness: 0.82 });
-const rindMat = new THREE.MeshStandardMaterial({ color: 0x7a4820, map: makeRind(), roughness: 0.94 });
+// ── TRANSLUCENT PASTE MATERIAL ─────────────────────────────────
+// Using MeshPhysicalMaterial with transmission for realistic cheese subsurface scattering
+const pasteTex = makePaste();
+const pasteMat = new THREE.MeshPhysicalMaterial({ 
+  color: 0xf5ecd8,
+  map: pasteTex,
+  roughness: 0.65,
+  metalness: 0,
+  transmission: 0.6,        // Allow light through for subsurface effect
+  thickness: 2.5,           // Volume thickness for scattering
+  ior: 1.35,                // Index of refraction for fatty cheese
+  clearcoat: 0.1,
+  clearcoatRoughness: 0.4,
+  attenuationTint: 0xfff8e8,
+  attenuationDistance: 1.2,
+  side: THREE.FrontSide
+});
+
+const rindMat = new THREE.MeshStandardMaterial({ 
+  color: 0x7a4820, 
+  map: makeRind(), 
+  roughness: 0.94,
+  bumpScale: 0.02
+});
 
 // ── Cheese Model Integration ──────────────────────────────────
-// Restore these constants so the Vein System doesn't crash:
 const R = 2.3, HH = 1.75, ANGLE = Math.PI/3;
-
 let bodyMesh; 
 const cheeseGroup = new THREE.Group();
 scene.add(cheeseGroup);
 
 const loader = new THREE.GLTFLoader();
 
-// IMPORTANT: Ensure this path is correct based on your repo structure
 loader.load('models/cheese.glb', (gltf) => {
   const model = gltf.scene;
   
@@ -170,12 +189,11 @@ loader.load('models/cheese.glb', (gltf) => {
       child.castShadow = true;
       child.receiveShadow = true;
 
-      // Map materials based on part names from Blender
       if (child.name.toLowerCase().includes('rind')) {
         child.material = rindMat; 
       } else {
         child.material = pasteMat;
-        bodyMesh = child; // This mesh receives the clicks
+        bodyMesh = child;
       }
     }
   });
@@ -183,18 +201,75 @@ loader.load('models/cheese.glb', (gltf) => {
   cheeseGroup.add(model);
 }, undefined, (e) => console.error("Error loading GLB:", e));
 
+// ── NEEDLE SYSTEM ──────────────────────────────────────────────
+const needles = [];
+const needleGroup = new THREE.Group();
+scene.add(needleGroup);
 
-// ── Vein system (Requires R, HH, ANGLE) ────────────────────────
+const needleMat = new THREE.MeshStandardMaterial({
+  color: 0xc0c5ce,
+  metalness: 0.95,
+  roughness: 0.15,
+  envMapIntensity: 1.0
+});
+
+function createNeedle(position, direction) {
+  // Needle shaft
+  const shaftGeo = new THREE.CylinderGeometry(0.015, 0.01, 0.8, 8);
+  const shaft = new THREE.Mesh(shaftGeo, needleMat);
+  
+  // Needle tip (cone)
+  const tipGeo = new THREE.ConeGeometry(0.01, 0.15, 8);
+  const tip = new THREE.Mesh(tipGeo, needleMat);
+  tip.position.y = -0.475;
+  
+  // Combine
+  const needle = new THREE.Group();
+  needle.add(shaft);
+  needle.add(tip);
+  
+  // Position and orient
+  needle.position.copy(position);
+  
+  // Orient needle to point in piercing direction (inward and slightly down)
+  const targetPos = position.clone().add(direction);
+  needle.lookAt(targetPos);
+  needle.rotateX(Math.PI/2); // Adjust for cylinder orientation
+  
+  // Animate insertion
+  needle.position.add(direction.clone().multiplyScalar(-0.3)); // Start outside
+  needle.userData = { 
+    targetPos: position.clone(),
+    startPos: needle.position.clone(),
+    progress: 0,
+    inserted: false
+  };
+  
+  needleGroup.add(needle);
+  needles.push(needle);
+  return needle;
+}
+
+// ── Vein system ────────────────────────────────────────────────
 let pierceCount=0, veinCount=0;
 const veinAnims = [];
 
 const trunkMat = new THREE.MeshStandardMaterial({
-  color:0x1a5060, emissive:0x061418, emissiveIntensity:0.4,
-  roughness:0.38, metalness:0.08
+  color:0x1a5060, 
+  emissive:0x0a2028, 
+  emissiveIntensity:0.6,
+  roughness:0.35, 
+  metalness:0.1,
+  transparent: true,
+  opacity: 0.9
 });
+
 const branchMat2 = new THREE.MeshStandardMaterial({
-  color:0x0d3a45, emissive:0x02080c, emissiveIntensity:0.3,
-  roughness:0.45, metalness:0.04
+  color:0x0d3a45, 
+  emissive:0x051015, 
+  emissiveIntensity:0.4,
+  roughness:0.4, 
+  metalness:0.05
 });
 
 function clampToWedge(p){
@@ -249,21 +324,25 @@ function spawnVein(localPt){
     pts.push(base);
   }
   const curve = new THREE.CatmullRomCurve3(pts);
-  const tgeo = new THREE.TubeGeometry(curve, 20, 0.02, 5, false);
-  grp.add(new THREE.Mesh(tgeo, trunkMat));
-
+  const tgeo = new THREE.TubeGeometry(curve, 20, 0.025, 6, false);
+  const veinMesh = new THREE.Mesh(tgeo, trunkMat);
+  
+  // Add slight glow to veins for visibility through cheese
+  veinMesh.renderOrder = 1;
+  
+  grp.add(veinMesh);
   grp.scale.setScalar(0.01);
   cheeseGroup.add(grp);
   veinAnims.push({grp, s:0.01, target:1.0, done:false});
   veinCount++;
 }
 
-// ── Raycasting & Animation ─────────────────────────────────────
+// ── Raycasting & Interaction ───────────────────────────────────
 const rc=new THREE.Raycaster();
 const mouse=new THREE.Vector2();
 
 document.addEventListener('pointerdown',function(e){
-  if(!bodyMesh) return; // Wait until model is loaded
+  if(!bodyMesh) return;
   const rect=renderer.domElement.getBoundingClientRect();
   mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
   mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
@@ -272,9 +351,16 @@ document.addEventListener('pointerdown',function(e){
   if(hits.length>0){
     const wp=hits[0].point.clone();
     const lp=cheeseGroup.worldToLocal(wp.clone());
+    
+    // Create needle piercing inward
+    const normal = hits[0].face.normal.clone().transformDirection(bodyMesh.matrixWorld).normalize();
+    const pierceDir = normal.multiplyScalar(-1); // Inward direction
+    
+    createNeedle(wp, pierceDir);
     spawnVein(lp);
     pierceCount++;
     hud();
+    updateBio();
   }
 });
 
@@ -285,10 +371,45 @@ function hud(){
   document.getElementById('mv').textContent=pct+'%';
 }
 
+function updateBio(){
+  const msgs = [
+    "Status: Introducing oxygen channels...",
+    "Penicillium roqueforti activating...",
+    "Proteolysis initiated...",
+    "Lipolysis releasing free fatty acids...",
+    "Blue-green marbling developing...",
+    "Texture softening in progress...",
+    "Earthy aroma compounds forming..."
+  ];
+  const idx = Math.min(msgs.length-1, Math.floor(pierceCount/2));
+  document.getElementById('bio').textContent = msgs[idx];
+}
+
+// ── Animation Loop ─────────────────────────────────────────────
 const clk=new THREE.Clock();
+
 function animate(){
   requestAnimationFrame(animate);
   const dt=clk.getDelta();
+  
+  // Animate needle insertions
+  needles.forEach(needle => {
+    if(!needle.userData.inserted && needle.userData.progress < 1){
+      needle.userData.progress += dt * 3; // Insertion speed
+      if(needle.userData.progress >= 1){
+        needle.userData.progress = 1;
+        needle.userData.inserted = true;
+      }
+      // Lerp position
+      needle.position.lerpVectors(
+        needle.userData.startPos,
+        needle.userData.targetPos,
+        needle.userData.progress
+      );
+    }
+  });
+  
+  // Animate vein growth
   for(const v of veinAnims){
     if(!v.done){
       v.s=Math.min(v.target, v.s+dt*1.2);
@@ -296,6 +417,12 @@ function animate(){
       if(v.s>=v.target) v.done=true;
     }
   }
+  
+  // Gentle idle rotation
+  if(cheeseGroup){
+    cheeseGroup.rotation.y = Math.sin(clk.getElapsedTime() * 0.1) * 0.05;
+  }
+  
   renderer.render(scene,camera);
 }
 

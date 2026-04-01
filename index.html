@@ -364,7 +364,7 @@ function spawnVein(localPt){
     
     const curve = new THREE.CatmullRomCurve3(pts);
     // THICKER tubes for visibility
-    const thickness = 0.015 + Math.random() * 0.01;
+    const thickness = 0.005 + Math.random() * 0.01;
     const tgeo = new THREE.TubeGeometry(curve, 24, thickness, 8, false);
     const veinMesh = new THREE.Mesh(tgeo, trunkMat);
     

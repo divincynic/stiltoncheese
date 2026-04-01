@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <script src="https://threejs.org/examples/js/loaders/GLTFLoader.js"></script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Stilton PDO Simulator</title>
@@ -54,6 +53,8 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
 <script>
 (function(){
 'use strict';
@@ -107,16 +108,12 @@ scene.add(back);
   scene.add(t);
 })();
 
-// ── Procedural Textures ────────────────────────────────────────
+// ── Procedural Textures (Kept for the GLB model) ────────────────
 function makePaste(){
   const sz=1024, cv=document.createElement('canvas');
   cv.width=cv.height=sz;
   const ctx=cv.getContext('2d');
-
-  // rich ivory base
   ctx.fillStyle='#ede5cb'; ctx.fillRect(0,0,sz,sz);
-
-  // large blotchy cream variations
   for(let i=0;i<120;i++){
     const x=Math.random()*sz, y=Math.random()*sz;
     const r=20+Math.random()*60;
@@ -126,8 +123,6 @@ function makePaste(){
     g.addColorStop(1,'rgba(0,0,0,0)');
     ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
   }
-
-  // fine crumb texture
   for(let i=0;i<8000;i++){
     const x=Math.random()*sz, y=Math.random()*sz;
     const r=Math.random()*1.8+0.2;
@@ -135,15 +130,6 @@ function makePaste(){
     ctx.fillStyle=Math.random()>0.55?`rgba(255,250,235,${a})`:`rgba(175,160,130,${a})`;
     ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
   }
-
-  // subtle horizontal lamination lines (cheese maturation bands)
-  for(let i=0;i<18;i++){
-    const y=Math.random()*sz;
-    ctx.strokeStyle=`rgba(160,145,115,${Math.random()*0.08+0.02})`;
-    ctx.lineWidth=Math.random()*2+0.5;
-    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(sz,y); ctx.stroke();
-  }
-
   return new THREE.CanvasTexture(cv);
 }
 
@@ -151,11 +137,7 @@ function makeRind(){
   const sz=512, cv=document.createElement('canvas');
   cv.width=cv.height=sz;
   const ctx=cv.getContext('2d');
-
-  // warm brown-orange base
   ctx.fillStyle='#6b3d18'; ctx.fillRect(0,0,sz,sz);
-
-  // rough crust splotches
   for(let i=0;i<600;i++){
     const x=Math.random()*sz, y=Math.random()*sz;
     const r=Math.random()*6+1;
@@ -163,69 +145,24 @@ function makeRind(){
     ctx.fillStyle=v>0.65?'rgba(160,90,30,0.5)':v>0.35?'rgba(80,40,10,0.45)':'rgba(200,120,50,0.35)';
     ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
   }
-
-  // mold patches — grey-white spots on rind
-  for(let i=0;i<40;i++){
-    const x=Math.random()*sz, y=Math.random()*sz;
-    const r=4+Math.random()*18;
-    ctx.fillStyle=`rgba(200,195,185,${Math.random()*0.3+0.1})`;
-    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-  }
-
   return new THREE.CanvasTexture(cv);
 }
 
-function makeBump(){
-  const sz=512, cv=document.createElement('canvas');
-  cv.width=cv.height=sz;
-  const ctx=cv.getContext('2d');
-  ctx.fillStyle='#808080'; ctx.fillRect(0,0,sz,sz);
-  for(let i=0;i<3000;i++){
-    const x=Math.random()*sz, y=Math.random()*sz;
-    const r=Math.random()*3+0.5;
-    const v=Math.floor(Math.random()*80+100);
-    ctx.fillStyle=`rgb(${v},${v},${v})`;
-    ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-  }
-  return new THREE.CanvasTexture(cv);
-}
+const pasteMat = new THREE.MeshStandardMaterial({ color: 0xede5cb, map: makePaste(), roughness: 0.82 });
+const rindMat = new THREE.MeshStandardMaterial({ color: 0x7a4820, map: makeRind(), roughness: 0.94 });
 
-const pasteMap  = makePaste();
-const rindMap   = makeRind();
-const bumpMap   = makeBump();
+// ── Cheese Model Integration ──────────────────────────────────
+// Restore these constants so the Vein System doesn't crash:
+const R = 2.3, HH = 1.75, ANGLE = Math.PI/3;
 
-// repeat paste texture a few times on curved surfaces
-pasteMap.wrapS = pasteMap.wrapT = THREE.RepeatWrapping;
-pasteMap.repeat.set(2,1);
-
-const pasteMat = new THREE.MeshStandardMaterial({
-  color: 0xede5cb,
-  map: pasteMap,
-  bumpMap: bumpMap,
-  bumpScale: 0.018,
-  roughness: 0.82,
-  metalness: 0.0,
-});
-const rindMat = new THREE.MeshStandardMaterial({
-  color: 0x7a4820,
-  map: rindMap,
-  bumpMap: bumpMap,
-  bumpScale: 0.05,
-  roughness: 0.94,
-  metalness: 0.0,
-});
-
-// ── Cheese Geometry ────────────────────────────────────────────
-// ── Cheese Geometry (IMPROVED REALISM) ─────────────────────────
-
-// -- Global variable to store the mesh for raycasting
 let bodyMesh; 
 const cheeseGroup = new THREE.Group();
 scene.add(cheeseGroup);
 
 const loader = new THREE.GLTFLoader();
 
-loader.load('/models/cheese.glb', (gltf) => {
+// IMPORTANT: Ensure this path is correct based on your repo structure
+loader.load('models/cheese.glb', (gltf) => {
   const model = gltf.scene;
   
   model.traverse((child) => {
@@ -233,67 +170,21 @@ loader.load('/models/cheese.glb', (gltf) => {
       child.castShadow = true;
       child.receiveShadow = true;
 
-      // --- ADDING COLOR/TEXTURES HERE ---
-      // If your model has specific names (like "Rind" and "Inside") in Blender:
+      // Map materials based on part names from Blender
       if (child.name.toLowerCase().includes('rind')) {
         child.material = rindMat; 
       } else {
         child.material = pasteMat;
-        // Assign this for the clicking/piercing logic
-        bodyMesh = child; 
+        bodyMesh = child; // This mesh receives the clicks
       }
-      
-      // OPTIONAL: If you just want a solid color instead of your textures:
-      // child.material = new THREE.MeshStandardMaterial({ color: 0xffd700 });
     }
   });
 
-  // Center and scale the model if it's too big/small
-  model.scale.setScalar(1.0); 
   cheeseGroup.add(model);
-}, 
-// Progress callback
-undefined, 
-// Error callback
-(error) => { console.error("Error loading model:", error); });
-// ── CUT FACE (CRUMBLY LOOK)
-function makeCutFace(angleOffset = 0){
-  const geo = new THREE.PlaneGeometry(R, HH, 40, 40);
+}, undefined, (e) => console.error("Error loading GLB:", e));
 
-  const pos = geo.attributes.position;
 
-  for(let i=0;i<pos.count;i++){
-    let x = pos.getX(i);
-    let y = pos.getY(i);
-
-    // crumb breakup
-    const noise = (Math.random()-0.5)*0.12;
-    pos.setZ(i, noise);
-
-    // slight edge rounding
-    if(Math.abs(x) > R*0.45){
-      pos.setZ(i, pos.getZ(i) - 0.1*Math.abs(x/R));
-    }
-  }
-
-  geo.computeVertexNormals();
-
-  const mesh = new THREE.Mesh(geo, pasteMat);
-  mesh.position.x = Math.cos(angleOffset)*R/2;
-  mesh.position.z = Math.sin(angleOffset)*R/2;
-  mesh.rotation.y = -angleOffset;
-
-  mesh.castShadow = true;
-  cheeseGroup.add(mesh);
-}
-
-makeCutFace(0);
-makeCutFace(ANGLE);
-
-// ── POSITIONING
-cheeseGroup.rotation.y = -ANGLE/2 + 0.15;
-cheeseGroup.position.y = 0.02;
-// ── Vein system ────────────────────────────────────────────────
+// ── Vein system (Requires R, HH, ANGLE) ────────────────────────
 let pierceCount=0, veinCount=0;
 const veinAnims = [];
 
@@ -306,28 +197,23 @@ const branchMat2 = new THREE.MeshStandardMaterial({
   roughness:0.45, metalness:0.04
 });
 
-// clamp a point to stay inside the wedge cylinder
 function clampToWedge(p){
-  // clamp radius
   const horiz = Math.sqrt(p.x*p.x + p.z*p.z);
   if(horiz > R-0.15){
     const scale = (R-0.15)/horiz;
     p.x *= scale; p.z *= scale;
   }
-  // clamp angle
   let theta = Math.atan2(p.z, p.x);
   if(theta < 0.05) theta = 0.05;
   if(theta > ANGLE-0.05) theta = ANGLE-0.05;
   const hr2 = Math.sqrt(p.x*p.x+p.z*p.z);
   p.x = Math.cos(theta)*hr2;
   p.z = Math.sin(theta)*hr2;
-  // clamp height
   p.y = Math.max(-HH/2+0.1, Math.min(HH/2-0.1, p.y));
   return p;
 }
 
 function randInsideWedge(nearPt, spread){
-  // random point inside wedge near given local point
   for(let tries=0;tries<20;tries++){
     const p = new THREE.Vector3(
       nearPt.x + (Math.random()-0.5)*spread,
@@ -343,10 +229,7 @@ function randInsideWedge(nearPt, spread){
 }
 
 function spawnVein(localPt){
-  // clamp pierce point into wedge
   clampToWedge(localPt);
-
-  // origin: somewhere between center and pierce point
   const origin = new THREE.Vector3(
     localPt.x * (0.05 + Math.random()*0.2),
     localPt.y * (0.1 + Math.random()*0.3),
@@ -355,109 +238,32 @@ function spawnVein(localPt){
   clampToWedge(origin);
 
   const grp = new THREE.Group();
-
-  // ── trunk ──
   const pts = [origin.clone()];
-  const steps = 10 + Math.floor(Math.random()*4);
+  const steps = 10;
   for(let i=1;i<=steps;i++){
     const t = i/steps;
     const base = origin.clone().lerp(localPt, t);
-    // wiggle perpendicular to main direction
-    base.x += (Math.random()-0.5)*0.28*(1-t*0.4);
-    base.y += (Math.random()-0.5)*0.18*(1-t*0.4);
-    base.z += (Math.random()-0.5)*0.28*(1-t*0.4);
+    base.x += (Math.random()-0.5)*0.2;
+    base.y += (Math.random()-0.5)*0.1;
     clampToWedge(base);
     pts.push(base);
   }
   const curve = new THREE.CatmullRomCurve3(pts);
-  const tgeo = new THREE.TubeGeometry(curve, 28, 0.025+Math.random()*0.015, 7, false);
+  const tgeo = new THREE.TubeGeometry(curve, 20, 0.02, 5, false);
   grp.add(new THREE.Mesh(tgeo, trunkMat));
-
-  // ── branches ──
-  const numBr = 3 + Math.floor(Math.random()*3);
-  for(let b=0;b<numBr;b++){
-    const bidx = 1 + Math.floor(Math.random()*(pts.length-2));
-    const bstart = pts[bidx].clone();
-    const bend = randInsideWedge(bstart, 0.9+Math.random()*0.6);
-
-    const bpts=[bstart.clone()];
-    for(let i=1;i<=5;i++){
-      const t=i/5;
-      const bp=bstart.clone().lerp(bend,t);
-      bp.x+=(Math.random()-0.5)*0.12;
-      bp.z+=(Math.random()-0.5)*0.12;
-      clampToWedge(bp);
-      bpts.push(bp);
-    }
-    const bc=new THREE.CatmullRomCurve3(bpts);
-    const bg=new THREE.TubeGeometry(bc, 14, 0.010+Math.random()*0.007, 5, false);
-    grp.add(new THREE.Mesh(bg, branchMat2));
-
-    // sub-branches
-    if(Math.random()>0.45){
-      const sbstart=bpts[2].clone();
-      const sbend=randInsideWedge(sbstart, 0.45);
-      const sbpts=[sbstart.clone()];
-      for(let i=1;i<=4;i++){
-        const bp=sbstart.clone().lerp(sbend,i/4);
-        bp.x+=(Math.random()-0.5)*0.08;
-        bp.z+=(Math.random()-0.5)*0.08;
-        clampToWedge(bp);
-        sbpts.push(bp);
-      }
-      const sc=new THREE.CatmullRomCurve3(sbpts);
-      const sg=new THREE.TubeGeometry(sc,10,0.006,5,false);
-      grp.add(new THREE.Mesh(sg,branchMat2));
-    }
-  }
 
   grp.scale.setScalar(0.01);
   cheeseGroup.add(grp);
-  veinAnims.push({grp, s:0.01, target:1.0+Math.random()*0.08, done:false});
+  veinAnims.push({grp, s:0.01, target:1.0, done:false});
   veinCount++;
 }
 
-// ── Needle flash ───────────────────────────────────────────────
-function flashNeedle(worldPt){
-  const geo = new THREE.CylinderGeometry(0.007,0.003,2.8,6);
-  const mat = new THREE.MeshStandardMaterial({color:0xc8d4dc, metalness:0.96, roughness:0.04});
-  const n = new THREE.Mesh(geo, mat);
-  // position needle above pierce point, pointing down
-  n.position.copy(worldPt);
-  n.position.y += 1.5;
-  scene.add(n);
-  let f=0;
-  (function step(){
-    f++;
-    if(f<20)       n.position.y -= 0.075;
-    else if(f<42)  n.position.y += 0.075;
-    else { scene.remove(n); geo.dispose(); mat.dispose(); return; }
-    requestAnimationFrame(step);
-  })();
-}
-
-// ── HUD ────────────────────────────────────────────────────────
-const MSGS=[
-  'O\u2082 introduced via needle channel.\nP.\u00a0roqueforti spores germinating.',
-  'Anaerobic \u2192 aerobic shift.\nMycelium spreading along channels.',
-  'Lipolysis detected. Short-chain\nfatty acids releasing piquancy.',
-  'Blue-green colonies visible.\nCreamy-crumbly texture forming.',
-  'PDO maturation criteria met.\nCharacteristic aroma developing.',
-];
-function hud(){
-  document.getElementById('pv').textContent=pierceCount;
-  document.getElementById('vv').textContent=veinCount;
-  const pct=Math.min(100,Math.round(pierceCount*9+veinCount*2));
-  document.getElementById('mv').textContent=pct+'%';
-  const i=Math.min(pierceCount-1,MSGS.length-1);
-  if(i>=0) document.getElementById('bio').textContent=MSGS[i];
-}
-
-// ── Raycasting ────────────────────────────────────────────────
+// ── Raycasting & Animation ─────────────────────────────────────
 const rc=new THREE.Raycaster();
 const mouse=new THREE.Vector2();
 
 document.addEventListener('pointerdown',function(e){
+  if(!bodyMesh) return; // Wait until model is loaded
   const rect=renderer.domElement.getBoundingClientRect();
   mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
   mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
@@ -466,28 +272,26 @@ document.addEventListener('pointerdown',function(e){
   if(hits.length>0){
     const wp=hits[0].point.clone();
     const lp=cheeseGroup.worldToLocal(wp.clone());
-    flashNeedle(wp);
     spawnVein(lp);
-    if(Math.random()>0.42) setTimeout(()=>spawnVein(lp.clone()),260);
-    if(Math.random()>0.68) setTimeout(()=>spawnVein(lp.clone()),540);
     pierceCount++;
     hud();
   }
 });
 
-// ── Animation loop ─────────────────────────────────────────────
-let angle0=0;
-const clk=new THREE.Clock();
+function hud(){
+  document.getElementById('pv').textContent=pierceCount;
+  document.getElementById('vv').textContent=veinCount;
+  const pct=Math.min(100,Math.round(pierceCount*9+veinCount*2));
+  document.getElementById('mv').textContent=pct+'%';
+}
 
+const clk=new THREE.Clock();
 function animate(){
   requestAnimationFrame(animate);
   const dt=clk.getDelta();
-  angle0+=dt*0.15;
-  cheeseGroup.rotation.y = -ANGLE/2+0.15 + Math.sin(angle0)*0.09;
-
   for(const v of veinAnims){
     if(!v.done){
-      v.s=Math.min(v.target, v.s+dt*1.4*(1-v.s*0.6+0.1));
+      v.s=Math.min(v.target, v.s+dt*1.2);
       v.grp.scale.setScalar(v.s);
       if(v.s>=v.target) v.done=true;
     }
@@ -496,9 +300,9 @@ function animate(){
 }
 
 window.addEventListener('resize',function(){
-  const w=window.innerWidth,h=window.innerHeight;
-  camera.aspect=w/h; camera.updateProjectionMatrix();
-  renderer.setSize(w,h);
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
 animate();
